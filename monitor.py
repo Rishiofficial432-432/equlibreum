@@ -6,16 +6,19 @@ No configuration required. Operator sees:
   1. Status (Safe / Warning / Critical) — big and colour-coded
   2. What to do right now — pre-written action checklist
   3. Who to call — alert contacts
-  4. How the crowd has changed — trend graph (auto-populated)
+  4. How the crowd has changed — trend graph (persisted in PostgreSQL)
 
 Location type and capacity are set via a collapsible settings panel
 so they don't clutter the main view.
+
+Every reading is automatically logged to the database, and Warning/Critical
+episodes are tracked as incidents (opened/closed automatically).
 """
 
 from __future__ import annotations
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+import db
 
 # ── Data ──────────────────────────────────────────────────────────────────────
 
@@ -197,9 +200,23 @@ def render(crowd_count: int = 0, crowd_source: str = ""):
                 key="mon_capacity",
                 help="The maximum number of people this venue can safely hold at one time",
             )
+
     location = st.session_state.get("mon_location", LOCATION_TYPES[0])
     capacity = int(st.session_state.get("mon_capacity",
                     DEFAULT_CAPACITIES.get(location, 1000)))
+
+    # Resolve / create the zone row for this location type (one zone per type)
+    try:
+        zone_id = db.get_or_create_zone(
+            name=location,
+            location_type=location,
+            safe_capacity=capacity,
+        )
+        db_ok = True
+    except Exception as e:
+        zone_id = None
+        db_ok = False
+        st.toast(f"Database unavailable: {e}", icon="⚠️")
 
     # ── Count display ─────────────────────────────────────────────────
     st.divider()
@@ -219,18 +236,32 @@ def render(crowd_count: int = 0, crowd_source: str = ""):
     if crowd_count == 0:
         return
 
-    # Auto-add to trend
-    snap_key = f"mon_snaps_{location}"
-    if snap_key not in st.session_state:
-        st.session_state[snap_key] = []
-    st.session_state[snap_key].append({
-        "Time": datetime.now().strftime("%H:%M:%S"),
-        "Count": crowd_count,
-    })
-    st.session_state[snap_key] = st.session_state[snap_key][-120:]
+    # ── Classify status ───────────────────────────────────────────────
+    status, ratio = _classify(crowd_count, capacity)
+
+    # ── Persist reading to the database (skip exact duplicate reruns) ──
+    if db_ok:
+        last_logged = st.session_state.get("mon_last_logged")
+        log_key = (zone_id, crowd_count, crowd_source, status)
+        if last_logged != log_key:
+            try:
+                db.log_reading(zone_id, crowd_count, status, source=crowd_source)
+
+                open_inc = db.get_open_incident(zone_id)
+                if status in ("Warning", "Critical"):
+                    if open_inc is None:
+                        db.open_incident(zone_id, status, crowd_count)
+                    else:
+                        db.update_incident_peak(open_inc["id"], crowd_count)
+                else:
+                    if open_inc is not None:
+                        db.close_incident(open_inc["id"])
+
+                st.session_state["mon_last_logged"] = log_key
+            except Exception as e:
+                st.toast(f"Could not save reading: {e}", icon="⚠️")
 
     # ── Status banner — the most important thing ──────────────────────
-    status, ratio = _classify(crowd_count, capacity)
     bg  = STATUS_BG[status]
     col = STATUS_COLORS[status]
 
@@ -290,7 +321,7 @@ def render(crowd_count: int = 0, crowd_source: str = ""):
 
         actions = ACTIONS.get(location, {}).get(status, [])
         for i, action in enumerate(actions, 1):
-            checked = st.checkbox(action, key=f"action_{location}_{status}_{i}")
+            st.checkbox(action, key=f"action_{location}_{status}_{i}")
 
         st.divider()
         contacts = CONTACTS.get(location, "Security and local authorities")
@@ -303,14 +334,21 @@ def render(crowd_count: int = 0, crowd_source: str = ""):
         )
         st.divider()
 
-    # ── Crowd trend graph ─────────────────────────────────────────────
-    snaps = st.session_state.get(snap_key, [])
-    if len(snaps) > 1:
-        st.markdown("#### 📈 Crowd trend this session")
-        df = pd.DataFrame(snaps).set_index("Time")
-        st.line_chart(df[["Count"]], height=200)
+    # ── Crowd trend graph (persisted in database) ─────────────────────
+    history = []
+    if db_ok:
+        try:
+            history = db.get_recent_readings(zone_id, limit=100)
+        except Exception:
+            history = []
 
-        # Capacity reference line annotation
+    if len(history) > 1:
+        st.markdown("#### 📈 Crowd trend (saved history)")
+        df = pd.DataFrame(history)
+        df["recorded_at"] = pd.to_datetime(df["recorded_at"])
+        df = df.set_index("recorded_at")
+        st.line_chart(df[["count"]], height=200)
+
         st.caption(
             f"Safe capacity: {capacity:,}  ·  "
             f"Warning threshold (70%): {int(capacity*0.70):,}  ·  "
@@ -318,4 +356,22 @@ def render(crowd_count: int = 0, crowd_source: str = ""):
         )
     else:
         st.markdown("#### 📈 Crowd trend")
-        st.caption("The trend graph will appear once there are multiple readings.")
+        st.caption("The trend graph will appear once there are multiple readings saved.")
+
+    # ── Recent incidents for this zone ─────────────────────────────────
+    if db_ok:
+        try:
+            incidents = db.get_incident_history(zone_id, limit=5)
+        except Exception:
+            incidents = []
+
+        if incidents:
+            with st.expander("🗂️ Recent incidents for this venue"):
+                for inc in incidents:
+                    state = "🟢 Resolved" if inc["ended_at"] else "🔴 Ongoing"
+                    started = inc["started_at"]
+                    started_str = started.strftime("%H:%M:%S") if hasattr(started, "strftime") else str(started)
+                    st.markdown(
+                        f"**{inc['status']}** — peak {inc['peak_count']:,} people · "
+                        f"started {started_str}  ·  {state}"
+                    )
