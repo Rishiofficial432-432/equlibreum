@@ -71,14 +71,22 @@ This system leverages state-of-the-art deep learning models to estimate the numb
 ### Step-by-Step
 
 1. **Clone the repository** and enter the directory:
+```bash
 git clone <your-repo-url>
 cd crowd-counting-system
+```
 2. **Install dependencies:**
+```bash
 pip install -r requirements.txt
+```
 3. **Start the backend FastAPI server:**
-python app.py
+```bash
+python backend.py
+```
 4. **Start the Streamlit frontend (in a different terminal):**
-streamlit run streamlit_app.py
+```bash
+streamlit run app.py
+```
 
 ---
 
