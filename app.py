@@ -1,14 +1,13 @@
 """
 app.py — Crowd Safety Platform
 ================================
-Three tabs, one flow:
+Three tabs:
 
-  🔬 Analyze   →  upload image or video, AI counts the crowd automatically
-  🛡️ Monitor   →  status dashboard, auto-filled count, action checklist
-  🗺️ Disperse  →  draw area on map, get capacity, plan exit routes
+  🔬 Analyze      →  upload image or video, AI counts the crowd
+  🛡️ Dashboard    →  status + actions + capacity map + routing — ALL IN ONE
+  ⚖️ Equilibrium  →  satellite road extraction & graph criticality analysis
 
-The crowd count flows automatically from Analyze into Monitor and Disperse.
-The operator never types a number twice.
+Count flows from Analyze into Dashboard automatically.
 """
 
 from __future__ import annotations
@@ -26,8 +25,8 @@ import cv2
 import pandas as pd
 from PIL import Image
 
-import monitor
-import disperse
+import dashboard
+import equilibrium
 
 st.set_page_config(
     page_title="Crowd Safety Platform",
@@ -41,15 +40,14 @@ API_BASE_URL = "http://localhost:8000"
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _api_ok() -> bool:
+def _api_ok():
     try:
         return requests.get(f"{API_BASE_URL}/health", timeout=4).status_code == 200
     except Exception:
         return False
 
 
-def _predict_bytes(file_bytes: bytes, filename: str = "upload.jpg") -> dict | None:
-    """Send raw bytes to backend. Always works regardless of file pointer state."""
+def _predict_bytes(file_bytes, filename="upload.jpg"):
     try:
         r = requests.post(
             f"{API_BASE_URL}/predict",
@@ -66,8 +64,7 @@ def _predict_bytes(file_bytes: bytes, filename: str = "upload.jpg") -> dict | No
     return None
 
 
-def _worker(task_q: queue.Queue, result_q: queue.Queue):
-    """Background thread: send frames to backend API."""
+def _worker(task_q, result_q):
     while True:
         item = task_q.get()
         if item is None:
@@ -91,7 +88,7 @@ def _worker(task_q: queue.Queue, result_q: queue.Queue):
             task_q.task_done()
 
 
-def _push_count(count: int, source: str):
+def _push_count(count, source):
     st.session_state["crowd_count"]  = count
     st.session_state["crowd_source"] = source
 
@@ -123,9 +120,12 @@ with st.sidebar:
     st.caption(
         "**Quick guide**\n\n"
         "1. **Analyze** tab → upload photo or video\n"
-        "2. Count appears automatically in all tabs\n"
-        "3. **Monitor** tab → situation status + actions\n"
-        "4. **Disperse** tab → draw venue + plan exit routes"
+        "2. **Dashboard** tab → everything else in one place:\n"
+        "   - Status + actions\n"
+        "   - Capacity estimation\n"
+        "   - Exit route planning\n"
+        "   - Incident history\n"
+        "3. **Equilibrium** tab → satellite road analysis"
     )
 
 
@@ -133,10 +133,10 @@ with st.sidebar:
 # Tabs
 # ─────────────────────────────────────────────────────────────────────────────
 
-tab_analyze, tab_monitor, tab_disperse = st.tabs([
+tab_analyze, tab_dashboard, tab_equilibrium = st.tabs([
     "🔬  Analyze Crowd",
-    "🛡️  Monitor & Act",
-    "🗺️  Plan Exit Routes",
+    "🛡️  Dashboard",
+    "⚖️  Equilibrium",
 ])
 
 
@@ -148,7 +148,7 @@ with tab_analyze:
     st.markdown("## 🔬 Analyze Crowd")
     st.markdown(
         "Upload a **photo** or **video** of the crowd. "
-        "The AI counts the people automatically and sends the result to all other tabs."
+        "The AI counts the people automatically and sends the result to the Dashboard."
     )
     st.divider()
 
@@ -159,7 +159,7 @@ with tab_analyze:
         label_visibility="collapsed",
     )
 
-    # ═══ PHOTO MODE ═══════════════════════════════════════════════════
+    # ── Photo ─────────────────────────────────────────────────────────
     if upload_mode == "📷 Upload Photo":
 
         uploaded = st.file_uploader(
@@ -169,7 +169,6 @@ with tab_analyze:
         )
 
         if uploaded is not None:
-            # Read bytes immediately — before any rerun can invalidate the buffer
             file_bytes = uploaded.getvalue()
             img = Image.open(io.BytesIO(file_bytes))
             w, h = img.size
@@ -181,15 +180,16 @@ with tab_analyze:
                 st.caption(f"📄 {uploaded.name}  ·  {w} × {h} px")
 
             with col_result:
-                already_done = (st.session_state.get("crowd_source") == uploaded.name
-                                and st.session_state.get("crowd_count", 0) > 0)
+                already_done = (
+                    st.session_state.get("crowd_source") == uploaded.name
+                    and st.session_state.get("crowd_count", 0) > 0
+                )
 
                 if already_done:
                     c = st.session_state["crowd_count"]
                     st.markdown(f"## 👥 {c:,} people")
-                    st.success("✅ Already analyzed. Switch to **Monitor & Act** tab.")
+                    st.success("✅ Already analyzed. Switch to **Dashboard** tab.")
 
-                    # Show density map if cached
                     if st.session_state.get("last_density_map"):
                         try:
                             raw = base64.b64decode(
@@ -206,17 +206,12 @@ with tab_analyze:
                         st.rerun()
                 else:
                     st.markdown("### Ready to analyze")
-                    st.markdown(
-                        "Click below. The AI will count all visible people in the photo."
-                    )
+                    st.markdown("Click below — AI will count all visible people.")
 
                     if st.button("🚀 Count People", type="primary",
                                  use_container_width=True, key="photo_analyze"):
                         if not api_ok:
-                            st.error(
-                                "AI Engine is offline. "
-                                "Start it with `python backend.py` then try again."
-                            )
+                            st.error("AI Engine offline. Run `python backend.py`.")
                         else:
                             with st.spinner("AI is counting people…"):
                                 result = _predict_bytes(file_bytes, uploaded.name)
@@ -225,36 +220,26 @@ with tab_analyze:
                                 count = int(float(result["estimated_count"]))
                                 _push_count(count, uploaded.name)
 
-                                # Cache density map so it survives reruns
                                 if result.get("density_map"):
                                     st.session_state["last_density_map"] = result["density_map"]
 
                                 st.markdown(f"## 👥 {count:,} people")
-                                st.success(
-                                    "✅ Done! Count sent to **Monitor & Act** automatically."
-                                )
+                                st.success("✅ Done! Switch to **Dashboard** tab.")
 
                                 if result.get("density_map"):
                                     try:
                                         raw = base64.b64decode(
                                             result["density_map"].split(",")[1])
-                                        st.image(
-                                            Image.open(io.BytesIO(raw)),
-                                            caption="Heat map — brighter areas = more people",
-                                            use_container_width=True,
-                                        )
+                                        st.image(Image.open(io.BytesIO(raw)),
+                                                 caption="Heat map",
+                                                 use_container_width=True)
                                     except Exception:
                                         pass
-
                                 st.rerun()
                             else:
-                                st.error(
-                                    "Analysis failed. "
-                                    "Check that `python backend.py` is running, "
-                                    "then try again."
-                                )
+                                st.error("Analysis failed. Check `python backend.py`.")
 
-    # ═══ VIDEO MODE ═══════════════════════════════════════════════════
+    # ── Video ─────────────────────────────────────────────────────────
     else:
         uploaded_vid = st.file_uploader(
             "Drag and drop a crowd video, or click Browse",
@@ -263,11 +248,8 @@ with tab_analyze:
         )
 
         if uploaded_vid is not None:
-            # Read all bytes immediately
             vid_bytes = uploaded_vid.getvalue()
 
-            # Write to a persistent temp file (keyed to file name + size so
-            # it's not re-written on every rerun for the same upload)
             cache_key = f"vid_tmppath_{uploaded_vid.name}_{len(vid_bytes)}"
             if cache_key not in st.session_state:
                 tfile = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
@@ -278,7 +260,6 @@ with tab_analyze:
 
             tmp_path = st.session_state[cache_key]
 
-            # Read video metadata
             cap = cv2.VideoCapture(tmp_path)
             fps         = cap.get(cv2.CAP_PROP_FPS) or 25
             frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
@@ -286,59 +267,46 @@ with tab_analyze:
             cap.release()
 
             st.video(vid_bytes)
-            st.info(f"📹 Duration: **{duration:.0f} seconds**  ·  {frame_count:,} frames at {fps:.0f} fps")
+            st.info(f"📹 {duration:.0f}s · {frame_count:,} frames · {fps:.0f} fps")
 
-            # Settings always rendered (not inside expander) so interval is always defined
             interval = st.slider(
                 "Analyze one frame every ___ seconds",
-                min_value=1, max_value=30, value=5,
-                help="Lower = more readings, slower. Higher = faster, fewer data points.",
-                key="vid_interval",
+                min_value=1, max_value=30, value=5, key="vid_interval",
             )
 
             col_btn, col_info = st.columns([1, 2])
             with col_btn:
                 run_analysis = st.button(
-                    "🚀 Start Analysis",
-                    type="primary",
-                    use_container_width=True,
-                    key="vid_analyze",
+                    "🚀 Start Analysis", type="primary",
+                    use_container_width=True, key="vid_analyze",
                     disabled=not api_ok,
                 )
             with col_info:
                 if not api_ok:
-                    st.warning("AI Engine is offline. Start `python backend.py` first.")
+                    st.warning("AI Engine offline. Start `python backend.py`.")
                 else:
-                    total_frames_to_analyze = max(1, int(duration / interval))
-                    st.caption(
-                        f"Will analyze **~{total_frames_to_analyze} frames** "
-                        f"(one every {interval}s). "
-                        f"Estimated time: {total_frames_to_analyze * 3}–{total_frames_to_analyze * 8}s"
-                    )
+                    n = max(1, int(duration / interval))
+                    st.caption(f"~{n} frames · est. {n*3}–{n*8}s")
 
             if run_analysis:
-                frames_step = max(1, int(fps * interval))
-                task_q      = queue.Queue()
-                result_q    = queue.Queue()
-                results: list = []
+                frames_step   = max(1, int(fps * interval))
+                task_q        = queue.Queue()
+                result_q      = queue.Queue()
+                results       = []
 
-                worker_thread = threading.Thread(
-                    target=_worker, args=(task_q, result_q), daemon=True)
-                worker_thread.start()
+                wt = threading.Thread(target=_worker, args=(task_q, result_q), daemon=True)
+                wt.start()
 
-                st.markdown("---")
-                st.markdown("### 📊 Analysis in progress")
                 prog     = st.progress(0.0, text="Starting…")
                 chart_ph = st.empty()
                 frame_ph = st.empty()
 
-                cap = cv2.VideoCapture(tmp_path)
+                cap     = cv2.VideoCapture(tmp_path)
                 current = 0
 
                 while cap.isOpened():
                     ret, frame = cap.read()
-                    if not ret:
-                        break
+                    if not ret: break
 
                     if current % frames_step == 0:
                         ts  = current / fps
@@ -346,50 +314,37 @@ with tab_analyze:
                         pil = Image.fromarray(rgb)
                         buf = io.BytesIO()
                         pil.save(buf, format="PNG")
-                        frame_ph.image(
-                            pil,
-                            caption=f"Frame at {ts:.0f}s",
-                            use_container_width=True,
-                        )
+                        frame_ph.image(pil, caption=f"Frame at {ts:.0f}s",
+                                       use_container_width=True)
                         task_q.put((ts, buf.getvalue()))
 
-                    # Drain completed results
                     while not result_q.empty():
                         res = result_q.get()
                         if res["ok"]:
-                            results.append({
-                                "Time (s)": round(res["time"], 1),
-                                "Count":    int(res["count"]),
-                            })
-                            chart_ph.line_chart(
-                                pd.DataFrame(results).set_index("Time (s)"))
+                            results.append({"Time (s)": round(res["time"], 1),
+                                            "Count": int(res["count"])})
+                            chart_ph.line_chart(pd.DataFrame(results).set_index("Time (s)"))
 
-                    pct = min(current / max(frame_count, 1), 1.0)
-                    prog.progress(pct, text=f"Analyzing… {pct*100:.0f}%")
+                    prog.progress(min(current / max(frame_count, 1), 1.0),
+                                  text=f"Analyzing… {current/max(frame_count,1)*100:.0f}%")
                     current += 1
 
                 cap.release()
-                task_q.put(None)  # signal worker to stop
+                task_q.put(None)
 
-                # Wait for remaining API responses
-                while worker_thread.is_alive():
+                while wt.is_alive():
                     while not result_q.empty():
                         res = result_q.get()
                         if res["ok"]:
-                            results.append({
-                                "Time (s)": round(res["time"], 1),
-                                "Count":    int(res["count"]),
-                            })
+                            results.append({"Time (s)": round(res["time"], 1),
+                                            "Count": int(res["count"])})
                     time.sleep(0.15)
 
-                # Final drain
                 while not result_q.empty():
                     res = result_q.get()
                     if res["ok"]:
-                        results.append({
-                            "Time (s)": round(res["time"], 1),
-                            "Count":    int(res["count"]),
-                        })
+                        results.append({"Time (s)": round(res["time"], 1),
+                                        "Count": int(res["count"])})
 
                 prog.progress(1.0, text="Done!")
                 frame_ph.empty()
@@ -397,52 +352,38 @@ with tab_analyze:
                 if results:
                     df    = pd.DataFrame(results).set_index("Time (s)")
                     chart_ph.line_chart(df)
-
                     peak  = int(df["Count"].max())
                     avg   = int(df["Count"].mean())
                     final = int(df["Count"].iloc[-1])
-
                     _push_count(peak, f"{uploaded_vid.name} (peak)")
 
-                    st.markdown("---")
                     c1, c2, c3 = st.columns(3)
-                    c1.metric("🔺 Peak count",    f"{peak:,}",
-                              help="Highest count in the video — used for safety planning")
-                    c2.metric("📊 Average count", f"{avg:,}")
-                    c3.metric("⏱ Final count",    f"{final:,}",
-                              help="Count at the last analyzed frame")
-
+                    c1.metric("🔺 Peak",   f"{peak:,}")
+                    c2.metric("📊 Average", f"{avg:,}")
+                    c3.metric("⏱ Final",   f"{final:,}")
                     st.success(
-                        f"✅ Analysis complete. "
-                        f"Peak count **{peak:,}** sent to **Monitor & Act** automatically. "
-                        "Switch to that tab now."
-                    )
+                        f"✅ Done. Peak **{peak:,}** sent to **Dashboard** automatically.")
                 else:
-                    st.error(
-                        "No results returned. "
-                        "Check that the AI engine is running and try again."
-                    )
+                    st.error("No results. Check AI engine is running.")
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# TAB 2 — MONITOR & ACT
+# TAB 2 — DASHBOARD (everything in one page)
 # ═════════════════════════════════════════════════════════════════════════════
 
-with tab_monitor:
-    monitor.render(
+with tab_dashboard:
+    dashboard.render(
         crowd_count=int(st.session_state.get("crowd_count", 0)),
         crowd_source=str(st.session_state.get("crowd_source", "")),
     )
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# TAB 3 — PLAN EXIT ROUTES
+# TAB 3 — EQUILIBRIUM
 # ═════════════════════════════════════════════════════════════════════════════
 
-with tab_disperse:
-    disperse.render(
-        crowd_count=int(st.session_state.get("crowd_count", 0)),
-    )
+with tab_equilibrium:
+    equilibrium.render()
 
 
 if __name__ == "__main__":

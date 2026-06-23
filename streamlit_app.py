@@ -97,9 +97,9 @@ def main():
                 c1, c2 = st.columns(2)
                 with c1:
                     image = Image.open(uploaded_file)
-                    st.image(image, caption="Uploaded Image", use_container_width=True)
+                    st.image(image, caption="Uploaded Image", width="stretch")
                 with c2:
-                    if st.button(f"🚀 Analyze Image {i+1}", key=f"btn_{i}", use_container_width=True):
+                    if st.button(f"🚀 Analyze Image {i+1}", key=f"btn_{i}", width="stretch"):
                         with st.spinner("Analyzing..."):
                             uploaded_file.seek(0)
                             result = predict_crowd_count(uploaded_file)
@@ -108,7 +108,7 @@ def main():
                                 
                                 if result.get("density_map"):
                                     dmap_data = base64.b64decode(result["density_map"].split(",")[1])
-                                    st.image(Image.open(io.BytesIO(dmap_data)), caption="Density Map", use_container_width=True)
+                                    st.image(Image.open(io.BytesIO(dmap_data)), caption="Density Map", width="stretch")
                             else:
                                 st.error("Analysis failed.")
 
@@ -178,7 +178,7 @@ def main():
                         frame_placeholder.image(
                             pil_img, 
                             caption=f"Captured Frame at {current_frame/fps:.1f}s", 
-                            use_container_width=True
+                            width="stretch"
                         )
                         
                         # Prepare for Queue

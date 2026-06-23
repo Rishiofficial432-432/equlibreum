@@ -118,7 +118,7 @@ def render(crowd_count: int = 0):
             label_visibility="collapsed",
         )
     with mc2:
-        if st.button("🔍 Find on map", key="map_search_btn", use_container_width=True):
+        if st.button("🔍 Find on map", key="map_search_btn", width="stretch"):
             if map_search.strip():
                 with st.spinner("Locating…"):
                     results = routing.geocode_multi(map_search, limit=4)
@@ -180,7 +180,7 @@ def render(crowd_count: int = 0):
                     "Max people":      f"{cap:,}",
                     "sqm per person":  f"{1 / density:.1f} m²",
                 })
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
             if crowd_count > 0:
                 st.markdown("#### Your current crowd vs this area")
@@ -292,7 +292,7 @@ def render(crowd_count: int = 0):
             label_visibility="collapsed",
         )
     with r1b:
-        if st.button("🔍 Search", key="dis_start_btn", use_container_width=True):
+        if st.button("🔍 Search", key="dis_start_btn", width="stretch"):
             if start_q.strip():
                 with st.spinner("Searching…"):
                     res = routing.geocode_multi(start_q, limit=5)
@@ -329,7 +329,7 @@ def render(crowd_count: int = 0):
             label_visibility="collapsed",
         )
     with r2b:
-        if st.button("🔍 Search", key="dis_end_btn", use_container_width=True):
+        if st.button("🔍 Search", key="dis_end_btn", width="stretch"):
             if end_q.strip():
                 with st.spinner("Searching…"):
                     res = routing.geocode_multi(end_q, limit=5)
@@ -390,7 +390,7 @@ def render(crowd_count: int = 0):
         )
 
         if st.button("🗺️ Find All Exit Routes",
-                     type="primary", use_container_width=True, key="dis_generate"):
+                     type="primary", width="stretch", key="dis_generate"):
 
             # Build cache key — same locations + modes = skip re-download
             cache_key = (
@@ -539,7 +539,7 @@ def render(crowd_count: int = 0):
                                 "ETA":           f"{ph['arrival_min']} min" if ph else "—",
                             })
                         st.dataframe(pd.DataFrame(table_rows),
-                                     use_container_width=True, hide_index=True)
+                                     width="stretch", hide_index=True)
 
                     st.divider()
 

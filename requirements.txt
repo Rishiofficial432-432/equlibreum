@@ -31,3 +31,7 @@ networkx
 osmnx
 folium
 geopy
+
+# Equilibrium — road extraction & graph criticality
+scikit-image
+sknw
