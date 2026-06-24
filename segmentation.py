@@ -479,7 +479,7 @@ def build_augmentation_pipeline(img_size: int = 512):
         raise RuntimeError("albumentations not installed. "
                            "Run: pip install albumentations")
     return A.Compose([
-        A.RandomResizedCrop(height=img_size, width=img_size,
+        A.RandomResizedCrop(size=(img_size, img_size),
                             scale=(0.5, 1.0), ratio=(0.75, 1.33)),
         A.HorizontalFlip(p=0.5),
         A.VerticalFlip(p=0.5),
