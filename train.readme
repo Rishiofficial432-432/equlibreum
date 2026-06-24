@@ -1,0 +1,133 @@
+# 🧠 Training Guide: Attention U-Net Road Extraction
+*ISRO NNRMS Route Resilience Pipeline (Phase I Model)*
+
+To upgrade the pipeline from the **Classical CV** extractor to the **Deep Learning (DL)** path, you must train the `AttentionUNet` model implemented in `segmentation.py`. Below is the complete specification of the model, target datasets, loss configuration, and a sample training script.
+
+---
+
+## 1. The Model: Attention U-Net
+- **Architecture**: `AttentionUNet` (defined in `segmentation.py`)
+- **Key Modules**:
+  - **Channel Attention Gate (CBAM Squeeze-and-Excitation)**: Amplifies spectral signals characteristic of road surfaces, while suppressing irrelevant background noise (e.g. tree canopies, building shadows).
+  - **Spatial Attention Gate**: Directs the network's focus to spatial road continuations, helping it reconstruct roads in regions where they are partially covered.
+  - **Attention Gates (at Skip Connections)**: Oktay et al. style gates that filter encoder activations before concatenating them with decoder features. This prevents non-road activations from contaminating the decoder.
+- **Parameters**: ~5 Million parameters, CPU-friendly for inference, GPU-preferred for training.
+
+---
+
+## 2. Target Datasets
+
+### A. DeepGlobe Road Extraction Dataset (Recommended)
+- **Format**: RGB satellite tiles (1024×1024 pixels) with corresponding binary mask labels (255 = road, 0 = background).
+- **Size**: 6,226 training images, 1,243 validation images, and 1,101 test images.
+- **Why it fits**: It mimics the urban/suburban complexity of metropolises with varying occlusion profiles (shadows, dense tree cover).
+
+### B. SpaceNet 3 / 5 Roads Dataset
+- **Format**: High-resolution WorldView remote sensing imagery (30cm–50cm resolution) paired with OSM-style road vectors.
+- **Why it fits**: Highly structured, geo-referenced, and specifically curated for topological road network mapping.
+
+### C. Massachusetts Roads Dataset
+- **Format**: 1,171 aerial images (1500×1500 pixels) covering diverse urban, suburban, and rural terrains.
+
+---
+
+## 3. Loss Configuration
+The model is optimized using `combined_loss` in `segmentation.py`, which is a weighted combination of four losses:
+$$Loss = 0.4 \times Loss_{Dice} + 0.4 \times Loss_{IoU} + 0.1 \times Loss_{BCE} + 0.1 \times Loss_{Boundary}$$
+
+1. **Dice Loss (40%)**: Focuses on overlap and penalizes fragmented predictions.
+2. **IoU Loss (40%)**: Directly maximizes the intersection-over-union metric, crucial for thin structures like roads.
+3. **Binary Cross-Entropy (10%)**: Provides stable pixel-wise gradient gradients.
+4. **Boundary Loss (10%)**: Uses Laplacian filters to penalize misaligned boundaries, ensuring sharp, narrow road edges even under occlusions.
+
+---
+
+## 4. Augmentation Pipeline
+The pipeline uses the `build_augmentation_pipeline()` function from `segmentation.py` using **Albumentations**:
+- **CoarseDropout**: Simulates tree canopy and building occlusion blocks.
+- **RandomShadow / RandomFog**: Simulates cloud cover, shadows, and low-contrast lighting.
+- **GaussNoise**: Simulates sensor noise typical of Resourcessat LISS-4 imagery.
+- **Spatial Transforms**: Random Crops, Flips, and 90-degree rotations.
+
+---
+
+## 5. Sample Training Script (`train.py`)
+
+You can create a `train.py` in the workspace using the following outline:
+
+```python
+import torch
+from torch.utils.data import DataLoader, Dataset
+from PIL import Image
+import os
+from segmentation import AttentionUNet, combined_loss, build_augmentation_pipeline, save_model
+
+class RoadDataset(Dataset):
+    def __init__(self, img_dir, mask_dir, transform=None):
+        self.img_dir = img_dir
+        self.mask_dir = mask_dir
+        self.images = os.listdir(img_dir)
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.images)
+
+    def __getitem__(self, idx):
+        img_name = self.images[idx]
+        img_path = os.path.join(self.img_dir, img_name)
+        # DeepGlobe masks have the same name but might be PNG
+        mask_path = os.path.join(self.mask_dir, img_name.replace(".jpg", "_mask.png"))
+        
+        image = np.array(Image.open(img_path).convert("RGB"))
+        mask = np.array(Image.open(mask_path).convert("L")) / 255.0  # Normalize to [0, 1]
+        
+        if self.transform:
+            augmented = self.transform(image=image, mask=mask)
+            image = augmented["image"]
+            mask = augmented["mask"].unsqueeze(0)  # 1×H×W
+        
+        return image, mask
+
+# Training Loop
+def train():
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = AttentionUNet(in_channels=3, base_ch=64).to(device)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4, weight_decay=1e-5)
+    
+    transform = build_augmentation_pipeline(img_size=512)
+    dataset = RoadDataset(img_dir="data/train_images", mask_dir="data/train_masks", transform=transform)
+    dataloader = DataLoader(dataset, batch_size=8, shuffle=True, num_workers=4)
+    
+    epochs = 40
+    for epoch in range(epochs):
+        model.train()
+        epoch_loss = 0.0
+        for images, masks in dataloader:
+            images = images.to(device)
+            masks = masks.to(device)
+            
+            optimizer.zero_grad()
+            outputs = model(images)
+            loss = combined_loss(outputs, masks)
+            loss.backward()
+            optimizer.step()
+            
+            epoch_loss += loss.item()
+            
+        print(f"Epoch {epoch+1}/{epochs} - Loss: {epoch_loss/len(dataloader):.4f}")
+        
+    save_model(model, "attention_unet_road.pth")
+
+if __name__ == "__main__":
+    train()
+```
+
+---
+
+## 6. Using the Trained Model in the App
+Once training is complete and you have `attention_unet_road.pth`:
+1. Open the Streamlit App (`http://localhost:8501`).
+2. Open the **Settings Panel** (sidebar).
+3. Switch **Extraction Mode** from **🧮 Classical CV** to **🧠 Attention U-Net**.
+4. Enter the path to your trained `.pth` checkpoint.
+5. Upload an image and click **🚀 Extract Road Network & Analyze**.

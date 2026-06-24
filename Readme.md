@@ -1,177 +1,97 @@
-# Crowd Counting & Density Mapping System
-
-A modern system to automatically estimate crowd size and visualize crowd density from images using deep learning.
-
----
-
-## Table of Contents
-
-- [Overview](#overview)
-- [Features](#features)
-- [System Architecture](#system-architecture)
-- [Use Cases](#use-cases)
-- [Crowd Management Effectiveness](#crowd-management-effectiveness)
-- [Setup & Installation](#setup--installation)
-- [How To Use (Step-by-Step)](#how-to-use-step-by-step)
-- [Example Screenshots](#example-screenshots)
-- [API Reference](#api-reference)
-- [Troubleshooting & Tips](#troubleshooting--tips)
-- [License & Attribution](#license--attribution)
+# ⚖️ Equilibrium: Route Resilience Pipeline
+### Occlusion-Robust Road Extraction & Graph-Theoretic Criticality Analysis for Urban Mobility
+*ISRO National Natural Resources Management System (NNRMS) Problem Statement*
 
 ---
 
-## Overview
+## 📌 Overview
+Standard satellite-based road extraction often fails due to "spectral blindness" caused by tree canopies, building shadows, and cloud cover. These broken masks lack topological connectivity, making them unsuitable for disaster response, navigation, or traffic simulation. 
 
-This system leverages state-of-the-art deep learning models to estimate the number of people (or crows/objects) in an image, and generates a density map highlighting crowded regions. It consists of a backend API (FastAPI, LWCC) and a minimalist Streamlit frontend for end-user interaction.
-
----
-
-## Features
-
-- **Accurate crowd estimation** using pre-trained deep learning models.
-- **Density map visualization** for insight into *where* the crowd is densest.
-- **Single and batch image processing**.
-- **Simple web-based interface**—no data science expertise required.
-- **Exportable results and easy integration** with other crowd management dashboards.
+**Equilibrium** solves this by implementing a resilient 4-phase pipeline that extracts roads from satellite imagery, topologically heals fractures/occlusions, analyzes network bottlenecks, and simulates route collapses to measure urban mobility resilience.
 
 ---
 
-## System Architecture
+## 🛠️ System Architecture & Features
 
-- **Backend:** FastAPI, Python, [LWCC](https://github.com/tersekmatija/lwcc) (Lightweight Crowd Counting library)
-- **Frontend:** Streamlit (minimal design)
+The pipeline is structured into four distinct phases:
 
+### 🔍 Phase I: Road Extraction & Segmentation (`segmentation.py`)
+- **Neural Network:** PyTorch implementation of **Attention U-Net** (`AttentionUNet`) with Channel & Spatial Attention Gates to focus on narrow road features.
+- **Fallback Engine:** Classical Computer Vision fallback using **CLAHE (Contrast Limited Adaptive Histogram Equalization)**, adaptive thresholding, and morphological structuring (thinning/skeletonization) to ensure robust zero-training deployment.
 
-## Use Cases
+### 🩹 Phase II: Topological Healing & Graph Extraction (`healing.py`)
+- **Skeleton to Graph:** Converts pixel skeletons to NetworkX spatial graphs using coordinate-mapping junctions and endpoints.
+- **Topological Healing:** Uses a combination of Minimum Spanning Trees (MST) and Disjoint Set/Union-Find. Stubborn disconnected fragments are bridged based on geographic distance, angle alignment tolerances, and path continuation vectors.
 
-- **Event Crowd Management:** Monitor attendance at concerts, rallies, or sports events.
-- **Public Safety:** Estimate density in real time for safety compliance in public places.
-- **Urban Planning:** Analyze crowd behavior in transport hubs or city squares.
-- **Wildlife Monitoring:** Adapt the same technique for animal group estimation in conservation work.
+### 📊 Phase III: Graph-Theoretic Criticality Analysis (`criticality.py`)
+- **Bottleneck Detection:** Calculates Edge/Node Betweenness Centralities to identify critical "gatekeeper" nodes and bottleneck road segments.
+- **Resilience Index ($R$):** Quantifies network connectivity using a normalized ratio of the giant component size to the total nodes under simulated attacks.
+- **Stress-Testing:** Runs an ablation series (sequential deletion of highest-centrality edges) to plot network degradation curves.
+
+### 🗺️ Phase IV: Interactive Geospatial Dashboard (`equilibrium.py` / `app.py`)
+- **Folium Interactive Leaflet Map:** Displays the extracted road graph over an interactive map.
+- **Centrality Heatmap:** A visual plasma-gradient heatmap representing traffic load and bottlenecks.
+- **Dynamic Simulation:** Interactive UI allowing users to click on any node/edge, trigger a simulated collapse, and immediately visualize rerouted traffic, updated bottleneck shifts, and the resulting Resilience Index gauge.
 
 ---
 
-## Crowd Management Effectiveness
-
-- **Real-time Estimation:** Enables proactive responses to overcrowding.
-- **Hotspot Detection:** Density map visualization helps in *redirecting flows* and *placing signage/staff*.
-- **Automated Reporting:** No need for labor-intensive manual counting.
-- **Data-Driven Decisions:** Historical analysis for future planning (e.g., optimum event layout).
-
----
-
-## Setup & Installation
+## 🚀 Setup & Installation
 
 ### Requirements
-
+- macOS (tested on macOS)
 - Python 3.9+
-- pip (Python package manager)
-- Internet connection (models download automatically if missing)
+- Virtual environment (`.venv`)
 
-### Step-by-Step
+### Installation Steps
+1. **Clone/Navigate to the directory**:
+   ```bash
+   cd "/Users/apple/Documents/vs code/equlibrium"
+   ```
 
-1. **Clone the repository** and enter the directory:
-```bash
-git clone <your-repo-url>
-cd crowd-counting-system
+2. **Initialize and Activate Virtual Environment**:
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   ```
+
+3. **Install Dependencies**:
+   ```bash
+   pip install --upgrade pip
+   pip install -r requirements.txt
+   ```
+
+4. **Launch the Dashboard**:
+   ```bash
+   chmod +x start.sh
+   ./start.sh
+   ```
+   Or launch directly:
+   ```bash
+   streamlit run app.py
+   ```
+   Open your browser at `http://localhost:8501`.
+
+---
+
+## 📂 Project Structure
+
 ```
-2. **Install dependencies:**
-```bash
-pip install -r requirements.txt
-```
-3. **Start the backend FastAPI server:**
-```bash
-python backend.py
-```
-4. **Start the Streamlit frontend (in a different terminal):**
-```bash
-streamlit run app.py
+equlibrium/
+├── app.py              # Main Streamlit application launcher & style injector
+├── equilibrium.py      # Phase IV Dashboard rendering and UI component orchestrator
+├── segmentation.py     # Phase I Road Extraction (Attention U-Net / Classical CV)
+├── healing.py          # Phase II Graph extraction & Topological Healing (MST/Union-Find)
+├── criticality.py      # Phase III Graph-Theoretic metrics, Centrality, and Simulation
+├── requirements.txt    # Clean, lightweight dependency list (free of crowd counting)
+├── start.sh            # One-click startup script for Streamlit
+└── sample_images/      # Folder containing demo/test satellite images
 ```
 
 ---
 
-## How To Use (Step-by-Step)
+## 🧠 Training the Deep Learning Model
 
-### 1. Open the Web Interface
-
-- Visit `http://localhost:8501` in your browser.
-
-> _Insert screenshot of Streamlit home page here_
->
-> ![Streamlit Home Page](screenshots/home-placeholder.png)
-
-### 2. Upload Image(s)
-
-- Click "Browse files" and select one or more crowd images.
-
-> _Insert screenshot of upload section here_
->
-> ![Upload an Image](screenshots/upload-placeholder1.png)
-  ![Upload an Image](screenshots/upload-placeholder2.png)
-### 3. Analyze
-
-- Click “Analyze Image(s)” to start the estimation.
-
-> _Insert screenshot of processing/analysis here_
->
-> ![Analyze Button and Processing](screenshots/analyze-placeholder.png)
-
-### 4. View Results
-
-- See the **input image**, **estimated count**, and **density map**.
-- Download the results for documentation or reporting.
-
-> _Insert screenshot of output/results here_
->
-> ![Output Results](screenshots/results-placeholder.png)
-
----
-
-## Example Screenshots
-
-Paste actual screenshots from your usage for clarity.
-
-- System home page
-- File upload section
-- Analysis in progress
-- Results and download option
-
----
-
-## API Reference
-
-### `/predict` (POST)
-- **Input:** Single image file
-- **Output:** Estimated count, density map (as base64 image), model details
-
-### `/predict-batch` (POST)
-- **Input:** Multiple image files
-- **Output:** List of estimated counts (one per image)
-
-### `/health` (GET)
-- **Output:** Server and model status
-
-### `/models` (GET)
-- **Output:** Available crowd counting models
-
----
-
-## Troubleshooting & Tips
-
-- **First run may take longer** (model weights are downloaded automatically).
-- **If you get a 503 error**, check that the `.lwcc/weights` directory is created and writable.
-- **Results are best** for overhead/crowd-facing images with good resolution.
-- For large files or batch jobs, allow extra processing time.
-- Upgrade pip if you encounter dependency issues:  
-`pip install --upgrade pip`
-
----
-
-## License & Attribution
-
-- Deep learning models and code use Open Source ([MIT/Apache/GPL as per your setup]).
-- Powered by [LWCC](https://github.com/tersekmatija/lwcc) and Streamlit.
-
----
-
-**_Paste actual screenshots in the referenced places for the best user experience. For questions, open an issue on your project repository._**
+To use the **Attention U-Net** instead of the Classical CV extractor:
+1. Obtain a satellite dataset like **DeepGlobe Road Extraction** or **SpaceNet Roads**.
+2. Run the Attention U-Net training loop (defined in `segmentation.py` or write a custom `train.py` using `AttentionUNet`).
+3. Load the trained PyTorch state dict (weights file) directly in the settings panel of the Streamlit UI.
