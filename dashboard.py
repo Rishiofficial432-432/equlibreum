@@ -592,18 +592,36 @@ def render(crowd_count: int = 0, crowd_source: str = ""):
 
             # Phase plan
             st.markdown("#### 📋 Phased Dispersal Plan")
-            st.caption("Release each group in order. Wait for each group to start moving before releasing the next.")
+            st.caption(
+                f"Ranked by: **{plan.get('ranking_method', '')}**  \n"
+                "Release each group in order. Wait for each group to start moving before releasing the next."
+            )
             for p in plan.get("phases", []):
                 with st.container(border=True):
                     pc1, pc2 = st.columns([1, 3])
                     with pc1:
                         st.markdown(f"### Phase {p['phase']}")
+                        st.markdown(p.get('recommendation', ''))
                         st.caption(f"Release at T+{p['start_min']} min")
                     with pc2:
-                        pp1, pp2, pp3 = st.columns(3)
+                        pp1, pp2, pp3, pp4 = st.columns(4)
                         pp1.metric("People",    f"{p['crowd']:,}")
-                        pp2.metric("Distance",  f"{p['length_m']} m")
-                        pp3.metric("Walk time", f"{p['arrival_min']} min")
+                        pp2.metric("Distance",  f"{p['length_km']:.2f} km")
+                        pp3.metric("Walk time", f"{p['time_min']} min")
+                        pp4.metric("Arrive",    f"T+{p['arrival_min']} min")
+                        # Google Maps-style score bars
+                        scores = p.get("scores", {})
+                        if scores:
+                            st.markdown(
+                                f"<small style='color:#666'>"
+                                f"⏱ Time: **{scores.get('Time',0):.0f}** &nbsp;·&nbsp; "
+                                f"🛣 Road quality: **{scores.get('Quality',0):.0f}** &nbsp;·&nbsp; "
+                                f"📐 Directness: **{scores.get('Directness',0):.0f}** &nbsp;·&nbsp; "
+                                f"👥 Capacity: **{scores.get('Capacity',0):.0f}** &nbsp;·&nbsp; "
+                                f"<b>Overall: {scores.get('Overall',0):.0f}/100</b>"
+                                f"</small>",
+                                unsafe_allow_html=True,
+                            )
 
             # PA Script
             st.markdown("#### 📢 PA Announcement Script")
